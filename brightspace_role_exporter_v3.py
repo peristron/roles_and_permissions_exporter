@@ -36,8 +36,8 @@ except ImportError:
 st.set_page_config(page_title='Brightspace Role Exporter', layout='wide')
 logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(message)s')
 
-# Name of the Excel template file in your repository
-TEMPLATE_FILENAME = "experimental_Dummy_RoleNames_TEMPLATE_roles_and_permissions_report_12312040"
+# Name of the Excel template file in your repository (MUST INCLUDE .xlsx EXTENSION)
+TEMPLATE_FILENAME = "experimental_Dummy_RoleNames_TEMPLATE_roles_and_permissions_report_12312040.xlsx"
 
 # --- ASYNCIO SETUP FOR WINDOWS ---
 if sys.platform.startswith("win"):
@@ -215,11 +215,12 @@ def render_analysis_sidebar():
             # We assume the file is in the same directory as this script
             with open(TEMPLATE_FILENAME, "rb") as template_file:
                 template_byte = template_file.read()
-                
+            
+            # NOTE: We read the long filename from disk, but offer it as a cleaner name for download
             st.download_button(
                 label="📥 Download Excel Template",
                 data=template_byte,
-                file_name=TEMPLATE_FILENAME,
+                file_name="Brightspace_Permissions_Report_Template.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 use_container_width=True
             )
@@ -239,7 +240,7 @@ def render_analysis_sidebar():
                 
         except FileNotFoundError:
             st.warning(f"⚠️ Template file not found.\n({TEMPLATE_FILENAME})")
-            st.caption("Please ensure the Excel file is uploaded to the repository root.")
+            st.caption("Please ensure the Excel file is uploaded to the repository root and matches the filename in the code.")
 
 render_analysis_sidebar()
 
@@ -471,4 +472,3 @@ if 'export_zip_buffer' in st.session_state:
 else:
     if not PLAYWRIGHT_AVAILABLE:
         st.error("⚠️ Playwright not found. If on Streamlit Cloud, ensure 'packages.txt' contains 'chromium'.")
-
