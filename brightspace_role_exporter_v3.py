@@ -1,6 +1,6 @@
 # PREPPING for public deployment; to deal with sensitive SessionId portion of the workflow
 # run command:
-#   streamlit run brightspace_role_exporter_v5.py
+#   streamlit run brightspace_role_exporter_v6.py
 # verify dependencies are installed - pip install streamlit requests pandas beautifulsoup4 playwright   THEN   python -m playwright install (shouldn't need to do this)
 # directory setup:
 #   cd c:\users\oakhtar\documents\pyprojs_local  (replace name/path if needed)
@@ -16,6 +16,7 @@ import sys
 import tempfile
 import time
 import zipfile
+import subprocess  # <--- ADDED FOR AUTO-INSTALL
 from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import urlparse, urljoin
 from http.cookies import SimpleCookie
@@ -36,7 +37,7 @@ except ImportError:
 st.set_page_config(page_title='Brightspace Role Exporter', layout='wide')
 logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(message)s')
 
-# Name of the Excel template file in your repository (MUST INCLUDE .xlsx EXTENSION)
+# Name of the Excel template file in your repository
 TEMPLATE_FILENAME = "Permissions_Report_Template.xlsx"
 
 # --- ASYNCIO SETUP FOR WINDOWS ---
@@ -45,6 +46,26 @@ if sys.platform.startswith("win"):
         asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
     except Exception:
         pass
+
+# --- AUTOMATED BROWSER INSTALLER FOR STREAMLIT CLOUD ---
+@st.cache_resource
+def ensure_playwright_browsers():
+    """
+    Checks if Playwright browsers are installed. If not, installs them.
+    This is critical for Streamlit Cloud deployment.
+    """
+    print("Checking Playwright browser installation...")
+    try:
+        # Run the command to install chromium
+        subprocess.run([sys.executable, "-m", "playwright", "install", "chromium"], check=True)
+        print("Playwright browsers installed successfully.")
+    except subprocess.CalledProcessError as e:
+        print(f"Error installing Playwright browsers: {e}")
+
+# Call the installer immediately
+if PLAYWRIGHT_AVAILABLE:
+    ensure_playwright_browsers()
+
 
 # --- UTILITY FUNCTIONS ---
 
@@ -208,7 +229,7 @@ st.title('Brightspace Role Permissions Exporter')
 # --- SIDEBAR: PHASE 2 TEMPLATE DOWNLOAD ---
 def render_analysis_sidebar():
     with st.sidebar:
-        st.header("📊 Phase 2: Analysis - IF you want to proceed through to generating the fuller 'Roles & Permissions' report")
+        st.header("📊 Phase 2: Analysis - IF you want to proceed with the fuller 'Roles&Permissions' Report")
         st.info("Once you have the ZIP file from the main window, use this Excel template to generate your report.")
         
         try:
@@ -472,4 +493,3 @@ if 'export_zip_buffer' in st.session_state:
 else:
     if not PLAYWRIGHT_AVAILABLE:
         st.error("⚠️ Playwright not found. If on Streamlit Cloud, ensure 'packages.txt' contains 'chromium'.")
-
