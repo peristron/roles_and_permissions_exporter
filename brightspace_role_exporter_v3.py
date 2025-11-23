@@ -208,7 +208,7 @@ st.title('Brightspace Role Permissions Exporter')
 # --- SIDEBAR: PHASE 2 TEMPLATE DOWNLOAD ---
 def render_analysis_sidebar():
     with st.sidebar:
-        st.header("📊 Phase 2: Analysis")
+        st.header("📊 Phase 2: Analysis - IF you want to proceed with the fuller "Roles/Permissions Report")
         st.info("Once you have the ZIP file from the main window, use this Excel template to generate your report.")
         
         try:
@@ -472,5 +472,6 @@ if 'export_zip_buffer' in st.session_state:
 else:
     if not PLAYWRIGHT_AVAILABLE:
         st.error("⚠️ Playwright not found. If on Streamlit Cloud, ensure 'packages.txt' contains 'chromium'.")
+
 
 
