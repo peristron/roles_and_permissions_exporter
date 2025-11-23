@@ -1,6 +1,6 @@
 # PREPPING for public deployment; to deal with sensitive SessionId portion of the workflow
 # run command:
-#   streamlit run brightspace_role_exporter_v3.py
+#   streamlit run brightspace_role_exporter_v5.py
 # verify dependencies are installed - pip install streamlit requests pandas beautifulsoup4 playwright   THEN   python -m playwright install (shouldn't need to do this)
 # directory setup:
 #   cd c:\users\oakhtar\documents\pyprojs_local  (replace name/path if needed)
@@ -35,6 +35,9 @@ except ImportError:
 # --- CONFIGURATION ---
 st.set_page_config(page_title='Brightspace Role Exporter', layout='wide')
 logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(message)s')
+
+# Name of the Excel template file in your repository
+TEMPLATE_FILENAME = "Brightspace_Permissions_Template.xlsx"
 
 # --- ASYNCIO SETUP FOR WINDOWS ---
 if sys.platform.startswith("win"):
@@ -202,6 +205,45 @@ def export_one_role_v2(page, host_url: str, organization_unit_id: int, role_id: 
 
 st.title('Brightspace Role Permissions Exporter')
 
+# --- SIDEBAR: PHASE 2 TEMPLATE DOWNLOAD ---
+def render_analysis_sidebar():
+    with st.sidebar:
+        st.header("📊 Phase 2: Analysis")
+        st.info("Once you have the ZIP file from the main window, use this Excel template to generate your report.")
+        
+        try:
+            # We assume the file is in the same directory as this script
+            with open(TEMPLATE_FILENAME, "rb") as template_file:
+                template_byte = template_file.read()
+                
+            st.download_button(
+                label="📥 Download Excel Template",
+                data=template_byte,
+                file_name=TEMPLATE_FILENAME,
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                use_container_width=True
+            )
+            
+            with st.expander("📝 How to use the Template", expanded=False):
+                st.markdown("""
+                **Setup:**
+                1.  **Unzip** the Role Permissions file you downloaded.
+                2.  Open the **Excel Template**.
+                
+                **Generate Report:**
+                1.  Go to the **Instructions** sheet (or the first sheet).
+                2.  Paste the **full folder path** of your unzipped files into the input cell (usually **B3**).
+                3.  Go to the **Data** tab in the ribbon.
+                4.  Click **Refresh All**.
+                """)
+                
+        except FileNotFoundError:
+            st.warning(f"⚠️ Template file not found.\n({TEMPLATE_FILENAME})")
+            st.caption("Please ensure the Excel file is uploaded to the repository root.")
+
+render_analysis_sidebar()
+
+# --- MAIN HELP GUIDE ---
 def render_help_guide():
     with st.expander("📖 How to use this tool (Step-by-Step Guide)", expanded=False):
         st.markdown("""
