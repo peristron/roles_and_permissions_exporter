@@ -1,9 +1,9 @@
 # PREPPING for public deployment; to deal with sensitive SessionId portion of the workflow
 # run command:
-#   streamlit run brightspace_role_exporter_v11.py
-# verify dependencies are installed - pip install streamlit requests pandas beautifulsoup4 playwright   THEN   python -m playwright install (shouldn't need to do this)
+#   streamlit run brightspace_role_exporter_v6.py
+# verify dependencies are installed - pip install streamlit requests pandas beautifulsoup4 playwright
 # directory setup:
-#   cd c:\users\oakhtar\documents\pyprojs_local  (replace name/path if needed)
+#   cd c:\users\name\documents\pyprojs_local  (replace name/path if needed)
 #!/usr/bin/env python3
 # -- coding: utf-8 --
 
@@ -37,7 +37,6 @@ except ImportError:
 st.set_page_config(page_title='Brightspace Role Exporter', layout='wide')
 logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(message)s')
 
-# Name of the Excel template file in your repository
 TEMPLATE_FILENAME = "Permissions_Report_Template.xlsx"
 
 # --- ASYNCIO SETUP FOR WINDOWS ---
@@ -184,7 +183,6 @@ def export_one_role_v2(page, host_url: str, organization_unit_id: int, role_id: 
                 export_button.wait_for(state='visible', timeout=8000)
                 export_button.click()
             except PlaywrightTimeoutError:
-                # Fallback if button isn't interactive, try direct URL
                 file_url = f'{host_url}/d2l/lp/security/export_file.d2l?roleId={role_id}&ou={organization_unit_id}'
                 page.goto(file_url, wait_until='domcontentloaded', timeout=page_timeout)
             
@@ -220,11 +218,13 @@ def export_one_role_v2(page, host_url: str, organization_unit_id: int, role_id: 
 
 st.title('Brightspace Role Permissions Exporter')
 
-# Initialize Session State for Roles
+# Initialize Session State
 if 'fetched_roles_df' not in st.session_state:
     st.session_state['fetched_roles_df'] = pd.DataFrame()
+if 'active_cookie' not in st.session_state:
+    st.session_state['active_cookie'] = ""
 
-# --- SIDEBAR & HELP GUIDE ---
+# --- SIDEBAR ---
 with st.sidebar:
     st.header("📊 Phase 2: Analysis")
     st.info("Once you have the ZIP file, use this Excel template.")
@@ -283,7 +283,7 @@ col_fetch1, col_fetch2 = st.columns([3, 1])
 with col_fetch1:
     organization_unit_id = st.number_input('Org Unit ID (ou)', value=6606, step=1, help="Usually 6606 for the main organization.")
 with col_fetch2:
-    exclude_d2lmonitor = st.checkbox("Exclude 'D2LMonitor'", value=True, help="Removes D2LMonitor from list immediately.")
+    exclude_d2lmonitor = st.checkbox("Exclude 'D2LMonitor'", value=True)
 
 if st.button("📥 Step 1: Fetch Available Roles", type="primary"):
     if not host_url or not cookie_header_value:
@@ -306,6 +306,10 @@ if st.button("📥 Step 1: Fetch Available Roles", type="primary"):
             
             # Save to session state
             st.session_state['fetched_roles_df'] = df.sort_values('DisplayName')
+            
+            # IMPORTANT: Persist the working cookie to session state so it isn't lost during re-runs
+            st.session_state['active_cookie'] = cookie_header_value
+            
             st.success(f"Successfully found {len(df)} roles.")
         else:
             st.error("Could not find any roles. Check Org Unit ID or Cookie.")
@@ -323,7 +327,7 @@ if not st.session_state['fetched_roles_df'].empty:
     selected_role_names = st.multiselect(
         "Select Roles to Include in Export:",
         options=all_role_names,
-        default=all_role_names  # Defaults to ALL selected
+        default=all_role_names
     )
     
     st.write(f"**Selected:** {len(selected_role_names)} of {len(all_role_names)} roles.")
@@ -344,6 +348,13 @@ if not st.session_state['fetched_roles_df'].empty:
         if not PLAYWRIGHT_AVAILABLE:
             st.error("Playwright is not available.")
             st.stop()
+
+        # Retrieve the cookie we saved during the "Fetch" step
+        # This ensures we use the valid cookie even if the text input gets cleared or confused
+        active_cookie = st.session_state.get('active_cookie')
+        if not active_cookie:
+            st.error("Session Error: Cookie lost. Please re-fetch roles (Step 1).")
+            st.stop()
             
         # Filter DF based on selection
         target_roles = roles_df[roles_df['DisplayName'].isin(selected_role_names)]
@@ -356,18 +367,27 @@ if not st.session_state['fetched_roles_df'].empty:
         failure_count = 0
         start_time = time.time()
         
-        progress_bar = st.progress(0.0, text='Initializing browser...')
+        progress_bar = st.progress(0.0, text='Initializing secure browser...')
         status_area = st.empty()
 
         try:
             with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zip_archive:
                 with sync_playwright() as playwright_instance:
+                    
                     browser = playwright_instance.chromium.launch(
                         headless=True, 
                         args=['--no-sandbox', '--disable-dev-shm-usage']
                     )
-                    context = browser.new_context(accept_downloads=True)
-                    add_cookies_to_browser_context(context, host_url, cookie_header_value)
+                    
+                    # User-Agent added for stability, preventing potential redirects
+                    context = browser.new_context(
+                        accept_downloads=True,
+                        user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+                        viewport={'width': 1920, 'height': 1080}
+                    )
+                    
+                    add_cookies_to_browser_context(context, host_url, active_cookie)
+                    
                     page = context.new_page()
                     
                     total = len(role_list)
@@ -387,12 +407,11 @@ if not st.session_state['fetched_roles_df'].empty:
                             failure_count += 1
                             export_log.append({'Role': rname, 'ID': rid, 'Status': 'Failed', 'Error': fname})
                             
-                        # Simple ETA
                         elapsed = time.time() - start_time
                         if elapsed > 0:
                             rate = i / elapsed
                             eta = (total - i) / rate
-                            status_area.caption(f"✅ {success_count} | ❌ {failure_count} | ETA: {format_seconds_to_hms(eta)}")
+                            status_area.caption(f"✅ {success_count} | ❌ {failure_count} | ⏳ ETA: {format_seconds_to_hms(eta)}")
                             
                     context.close()
                     browser.close()
@@ -417,6 +436,7 @@ if not st.session_state['fetched_roles_df'].empty:
 if 'export_zip_buffer' in st.session_state:
     st.markdown("---")
     st.success("🎉 Export Complete!")
+    st.balloons()
     
     col_d1, col_d2 = st.columns(2)
     fname = st.session_state.get('base_zip_name', 'roles')
