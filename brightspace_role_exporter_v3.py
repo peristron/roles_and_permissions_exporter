@@ -1,4 +1,5 @@
 # PREPPING for public deployment; to deal with sensitive SessionId portion of the workflow
+# if reverting, revert to locally saved brightspace_role_exporter_v6_v3.py
 # run command:
 #   streamlit run brightspace_role_exporter_v6.py
 # verify dependencies are installed - pip install streamlit requests pandas beautifulsoup4 playwright
@@ -323,7 +324,7 @@ if not st.session_state['fetched_roles_df'].empty:
     all_role_names = roles_df['DisplayName'].tolist()
     
     # SELECTION WIDGET
-    st.info("💡 Tip: Deselect roles you don't need to keep the Excel row count under 1.4 million.")
+    st.info("💡 Tip: DE-select roles you don't need to keep the Excel row count >~1.4 million, or don't and leave all roles selected, if row limit or use of the excel template aren't an issue for you")
     selected_role_names = st.multiselect(
         "Select Roles to Include in Export:",
         options=all_role_names,
@@ -462,3 +463,4 @@ if 'export_zip_buffer' in st.session_state:
         
     with st.expander("View Log Details"):
         st.dataframe(log_df, use_container_width=True)
+
