@@ -227,8 +227,8 @@ if 'active_cookie' not in st.session_state:
 
 # --- SIDEBAR ---
 with st.sidebar:
-    st.header("📊 Phase 2: Analysis")
-    st.info("Once you have the ZIP file, use this Excel template.")
+    st.header("📊 Phase 2: Analysis, IF you're proceeding with the fuller 'Roles&Permissions Report' ")
+    st.info("Once you have the ZIP file, use this excel template.")
     try:
         with open(TEMPLATE_FILENAME, "rb") as template_file:
             st.download_button(
@@ -463,4 +463,5 @@ if 'export_zip_buffer' in st.session_state:
         
     with st.expander("View Log Details"):
         st.dataframe(log_df, use_container_width=True)
+
 
