@@ -286,8 +286,9 @@ with st.expander("📖 Instructions & Notes", expanded=False):
     **3. Select Roles:** Choose which roles to keep.
     **4. Export:** Click "Start Export" and download the ZIP.
     **5. Logout:** Log out of Brightspace to kill the session.
+    
     NOTE: Each Role you select forces the app to generate a complete ‘checklist’ of every possible permission setting in the entire system for that role.
-The data structure is multiplicative, not additive.
+The data structure's multiplicative, not additive.
 
 Every single Role included acts as a multiplier for the total row count. This is because a 'Role' isn’t a single data point; it’s a container for 1000s of individual settings. The data are hierarchical and nested, adding a new Role doesn't just add 1 "item" to the list; it forces the app and logical system to generate a status for every possible combination of Tool, Permission, and Org Unit Type for that new Role. 
 Or: a cartesian product (or “combinatorial explosion”~)
@@ -514,6 +515,7 @@ if 'export_zip_buffer' in st.session_state:
         
     with st.expander("View Log Details"):
         st.dataframe(log_df, use_container_width=True)
+
 
 
 
