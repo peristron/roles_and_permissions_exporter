@@ -367,7 +367,7 @@ if not st.session_state['fetched_roles_df'].empty:
     all_role_names = roles_df['DisplayName'].tolist()
     
     # SELECTION WIDGET
-    st.info("💡 Tip: Deselect roles you don't need to reduce file size.")
+    st.info("💡 Tip: DE-select roles you don't need to reduce file size; too many roles - say: over 70 - risks hitting the ~1.4million Excel row limit.")
     selected_role_names = st.multiselect(
         "Select Roles to Include in Export:",
         options=all_role_names,
@@ -506,4 +506,5 @@ if 'export_zip_buffer' in st.session_state:
         
     with st.expander("View Log Details"):
         st.dataframe(log_df, use_container_width=True)
+
 
