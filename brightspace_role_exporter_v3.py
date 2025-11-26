@@ -41,7 +41,37 @@ st.set_page_config(
     layout='wide',
     page_icon="🎓"
 )
+# --- AUTHENTICATION CHECK ---
+def check_password():
+    """Returns `True` if the user had the correct password."""
 
+    def password_entered():
+        """Checks whether a password entered by the user is correct."""
+        if st.session_state["password"] == st.secrets["general"]["app_password"]:
+            st.session_state["password_correct"] = True
+            del st.session_state["password"]  # Check password, then delete input
+        else:
+            st.session_state["password_correct"] = False
+
+    # Return True if the user has already validated
+    if st.session_state.get("password_correct", False):
+        return True
+
+    # Show input if not validated
+    st.text_input(
+        "Please enter the access code to use this tool:", 
+        type="password", 
+        on_change=password_entered, 
+        key="password"
+    )
+    
+    if "password_correct" in st.session_state and not st.session_state["password_correct"]:
+        st.error("😕 Access code incorrect")
+        
+    return False
+
+if not check_password():
+    st.stop()  # STOPS the app here. No code below this runs until auth passes.
 # Configure logging but prevent propagation of sensitive data
 logging.basicConfig(level=logging.WARNING, format='%(asctime)s %(levelname)s %(message)s')
 
@@ -515,6 +545,7 @@ if 'export_zip_buffer' in st.session_state:
         
     with st.expander("View Log Details"):
         st.dataframe(log_df, use_container_width=True)
+
 
 
 
