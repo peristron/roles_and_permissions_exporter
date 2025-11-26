@@ -279,13 +279,21 @@ with st.sidebar:
     except FileNotFoundError:
         st.warning("Template file not found on server.")
 
-with st.expander("📖 Instructions", expanded=False):
+with st.expander("📖 Instructions & Notes", expanded=False):
     st.markdown("""
     **1. Get Cookie:** Open Incognito > Login Brightspace > DevTools (F12) > Network > Refresh > Click top request > Headers > Copy `Cookie` value.
     **2. Fetch Roles:** Enter URL/Cookie below, click "Fetch Available Roles".
     **3. Select Roles:** Choose which roles to keep.
     **4. Export:** Click "Start Export" and download the ZIP.
     **5. Logout:** Log out of Brightspace to kill the session.
+    NOTE: Each Role you select forces the app to generate a complete ‘checklist’ of every possible permission setting in the entire system for that role.
+The data structure is multiplicative, not additive.
+
+Every single Role included acts as a multiplier for the total row count. This is because a 'Role' isn’t a single data point; it’s a container for 1000s of individual settings. The data are hierarchical and nested, adding a new Role doesn't just add 1 "item" to the list; it forces the app and logical system to generate a status for every possible combination of Tool, Permission, and Org Unit Type for that new Role. 
+Or: a cartesian product (or “combinatorial explosion”~)
+
+Now if too many roles are selected, and you hit that multiplicative limit, consider using Excel's "Get Data" (Power Query) feature instead of opening the CSV directly. Power Query can handle millions of rows, allowing users to filter or pivot the data before loading it into a worksheet, bypassing the hard row limit (1,048,576). Up to you if you want to edit or re-create the template that’s downloaded as part of this app’s workflow.
+
     """)
 
 # --- INPUT SECTION ---
@@ -506,5 +514,6 @@ if 'export_zip_buffer' in st.session_state:
         
     with st.expander("View Log Details"):
         st.dataframe(log_df, use_container_width=True)
+
 
 
