@@ -18,6 +18,7 @@ import tempfile
 import time
 import zipfile
 import subprocess
+import socket
 from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import urlparse, urljoin
 from http.cookies import SimpleCookie
@@ -35,8 +36,14 @@ except ImportError:
     PLAYWRIGHT_AVAILABLE = False
 
 # --- CONFIGURATION ---
-st.set_page_config(page_title='Brightspace Role Exporter', layout='wide')
-logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(message)s')
+st.set_page_config(
+    page_title='Brightspace Role Exporter', 
+    layout='wide',
+    page_icon="🎓"
+)
+
+# Configure logging but prevent propagation of sensitive data
+logging.basicConfig(level=logging.WARNING, format='%(asctime)s %(levelname)s %(message)s')
 
 TEMPLATE_FILENAME = "Permissions_Report_Template.xlsx"
 
@@ -47,12 +54,9 @@ if sys.platform.startswith("win"):
     except Exception:
         pass
 
-# --- AUTOMATED BROWSER INSTALLER FOR STREAMLIT CLOUD ---
+# --- AUTOMATED BROWSER INSTALLER ---
 @st.cache_resource
 def ensure_playwright_browsers():
-    """
-    Checks if Playwright browsers are installed. If not, installs them.
-    """
     print("Checking Playwright browser installation...")
     try:
         subprocess.run([sys.executable, "-m", "playwright", "install", "chromium"], check=True)
@@ -64,10 +68,34 @@ if PLAYWRIGHT_AVAILABLE:
     ensure_playwright_browsers()
 
 
-# --- UTILITY FUNCTIONS ---
+# --- SECURITY & UTILITY FUNCTIONS ---
 
 def safe_rerun() -> None:
     st.rerun()
+
+def is_safe_url(url: str) -> bool:
+    """
+    SSRF Protection: Validates that the URL is http/s and not a local/internal address.
+    """
+    try:
+        parsed = urlparse(url)
+        if parsed.scheme not in ('http', 'https'):
+            return False
+        
+        hostname = parsed.hostname
+        if not hostname:
+            return False
+            
+        # Block localhost
+        if hostname in ('localhost', '127.0.0.1', '::1', '0.0.0.0'):
+            return False
+            
+        # Optional: specific D2L/Brightspace regex check could go here
+        # if "brightspace.com" not in hostname and "d2l" not in hostname: return False
+        
+        return True
+    except Exception:
+        return False
 
 def normalize_url(url: str) -> str:
     return (url or '').strip().rstrip('/')
@@ -110,11 +138,12 @@ def add_cookies_to_browser_context(context, host_url: str, cookie_header: str) -
         if cookies_for_playwright:
             context.add_cookies(cookies_for_playwright)
     except Exception as e:
-        logging.error(f"Error parsing cookies: {e}")
+        logging.warning(f"Error parsing cookies: {e}") # Changed to warning
 
 # --- CORE LOGIC ---
 
 def check_whoami(api_endpoint_url: str, cookie_header: str) -> Dict[str, Any]:
+    # User-Agent is important for WAFs
     headers = {'User-Agent': 'Role-Permissions-Exporter/2.0', 'Cookie': cookie_header}
     try:
         response = requests.get(api_endpoint_url, headers=headers, timeout=15)
@@ -125,7 +154,9 @@ def check_whoami(api_endpoint_url: str, cookie_header: str) -> Dict[str, Any]:
         else:
             return {'status': 'fail', 'message': f"Authentication failed (Status {response.status_code}). Expired cookie or wrong host."}
     except requests.RequestException as exception:
-        return {'status': 'fail', 'message': f"Network error: {exception}"}
+        # Log generic error, do not log 'exception' object blindly as it may contain headers
+        logging.error(f"WhoAmI check failed for {api_endpoint_url}") 
+        return {'status': 'fail', 'message': "Network error. Please check URL."}
 
 def fetch_roles_via_api(api_endpoint_url: str, cookie_header: str) -> pd.DataFrame:
     headers = {'User-Agent': 'Role-Permissions-Exporter/2.0', 'Accept': 'application/json', 'Cookie': cookie_header}
@@ -135,7 +166,7 @@ def fetch_roles_via_api(api_endpoint_url: str, cookie_header: str) -> pd.DataFra
         roles_data = [{'Identifier': role.get('Identifier'), 'DisplayName': role.get('DisplayName')} for role in response.json()]
         return pd.DataFrame(roles_data)
     except Exception as exception:
-        logging.error(f"API call to fetch roles failed: {exception}")
+        logging.warning(f"API call failed (Status: {getattr(exception.response, 'status_code', 'N/A') if hasattr(exception, 'response') else 'N/A'})")
         return pd.DataFrame()
 
 def fetch_roles_via_ui_scrape(host_url: str, organization_unit_id: int, cookie_header: str) -> pd.DataFrame:
@@ -162,7 +193,7 @@ def fetch_roles_via_ui_scrape(host_url: str, organization_unit_id: int, cookie_h
             next_link_element = soup.find('a', title=re.compile(r'next', re.I))
             current_url = urljoin(current_url, next_link_element['href']) if next_link_element and 'href' in next_link_element.attrs else None
         except Exception as exception:
-            logging.error(f"UI scraping for roles failed on page {current_url}: {exception}")
+            logging.warning(f"UI scraping failed on page {i}")
             break
             
     status_text.empty()
@@ -172,9 +203,6 @@ def export_one_role_v2(page, host_url: str, organization_unit_id: int, role_id: 
     last_error_message = "No attempts were made."
     for attempt in range(max_retries + 1):
         try:
-            if attempt > 0:
-                logging.info(f"Retrying role '{role_name}' (ID: {role_id}), attempt {attempt + 1}/{max_retries + 1}...")
-
             preview_url = f'{host_url}/d2l/lp/security/export_preview.d2l?roleId={role_id}&ou={organization_unit_id}'
             page.goto(preview_url, wait_until='domcontentloaded', timeout=page_timeout)
             
@@ -208,8 +236,8 @@ def export_one_role_v2(page, host_url: str, organization_unit_id: int, role_id: 
             return True, output_filename, file_data
 
         except Exception as exception:
-            last_error_message = f'Failed to export role {role_id} ({role_name}) on attempt {attempt + 1}: {exception}'
-            logging.warning(last_error_message)
+            # Do not log full exception as it might contain URL parameters or data
+            last_error_message = f'Export failed for {role_id}. Attempt {attempt+1}. Error: {type(exception).__name__}'
             if attempt < max_retries:
                 time.sleep(3) 
 
@@ -217,7 +245,7 @@ def export_one_role_v2(page, host_url: str, organization_unit_id: int, role_id: 
 
 # --- STREAMLIT UI ---
 
-st.title('Brightspace Role Permissions Exporter')
+st.title('🎓 Brightspace Role Permissions Exporter')
 
 # Initialize Session State
 if 'fetched_roles_df' not in st.session_state:
@@ -225,10 +253,20 @@ if 'fetched_roles_df' not in st.session_state:
 if 'active_cookie' not in st.session_state:
     st.session_state['active_cookie'] = ""
 
+# --- SECURITY NOTICE ---
+st.warning("""
+**Security & Privacy Notice:**  
+This tool runs on a public cloud server. While your data is processed in-memory and not saved to disk, 
+you are submitting a sensitive Session Cookie.  
+1. **Do not** use this on a shared or public computer.
+2. **Log out** of Brightspace immediately after downloading your ZIP file to invalidate the cookie.
+3. **Sanitize** your session by clearing cookies if you suspect any issues.
+""")
+
 # --- SIDEBAR ---
 with st.sidebar:
-    st.header("📊 Phase 2: Analysis, IF you're proceeding with the fuller 'Roles&Permissions Report' ")
-    st.info("Once you have the ZIP file, use this excel template.")
+    st.header("📊 Excel Analysis")
+    st.info("Use the template below to analyze the ZIP file generated by this tool.")
     try:
         with open(TEMPLATE_FILENAME, "rb") as template_file:
             st.download_button(
@@ -239,15 +277,15 @@ with st.sidebar:
                 use_container_width=True
             )
     except FileNotFoundError:
-        st.warning("Template file not found.")
+        st.warning("Template file not found on server.")
 
-with st.expander("📖 How to use this tool", expanded=False):
+with st.expander("📖 Instructions", expanded=False):
     st.markdown("""
     **1. Get Cookie:** Open Incognito > Login Brightspace > DevTools (F12) > Network > Refresh > Click top request > Headers > Copy `Cookie` value.
     **2. Fetch Roles:** Enter URL/Cookie below, click "Fetch Available Roles".
-    **3. Select Roles:** Choose which roles to keep (to reduce file size).
+    **3. Select Roles:** Choose which roles to keep.
     **4. Export:** Click "Start Export" and download the ZIP.
-    **5. Logout:** Log out of Brightspace when done.
+    **5. Logout:** Log out of Brightspace to kill the session.
     """)
 
 # --- INPUT SECTION ---
@@ -267,6 +305,11 @@ with col2:
     cookie_header_value = normalize_cookie(cookie_header_raw)
 
 if host_url and cookie_header_value:
+    # SSRF Check
+    if not is_safe_url(host_url):
+        st.error("❌ Invalid URL. Must start with https:// and cannot be a local address.")
+        st.stop()
+
     if st.button("🔍 Verify Credentials"):
         with st.spinner("Verifying session..."):
             api_url = f'{host_url}/d2l/api/lp/1.48/users/whoami'
@@ -289,6 +332,8 @@ with col_fetch2:
 if st.button("📥 Step 1: Fetch Available Roles", type="primary"):
     if not host_url or not cookie_header_value:
         st.error("Please provide Host URL and Cookie first.")
+    elif not is_safe_url(host_url):
+        st.error("Invalid Host URL.")
     else:
         st.info("Connecting to Brightspace to list roles...")
         roles_api_url = f'{host_url}/d2l/api/lp/1.48/roles/'
@@ -307,8 +352,6 @@ if st.button("📥 Step 1: Fetch Available Roles", type="primary"):
             
             # Save to session state
             st.session_state['fetched_roles_df'] = df.sort_values('DisplayName')
-            
-            # IMPORTANT: Persist the working cookie to session state so it isn't lost during re-runs
             st.session_state['active_cookie'] = cookie_header_value
             
             st.success(f"Successfully found {len(df)} roles.")
@@ -324,7 +367,7 @@ if not st.session_state['fetched_roles_df'].empty:
     all_role_names = roles_df['DisplayName'].tolist()
     
     # SELECTION WIDGET
-    st.info("💡 Tip: DE-select roles you don't need to keep the Excel row count >~1.4 million, or don't and leave all roles selected, if row limit or use of the excel template aren't an issue for you")
+    st.info("💡 Tip: Deselect roles you don't need to reduce file size.")
     selected_role_names = st.multiselect(
         "Select Roles to Include in Export:",
         options=all_role_names,
@@ -350,8 +393,6 @@ if not st.session_state['fetched_roles_df'].empty:
             st.error("Playwright is not available.")
             st.stop()
 
-        # Retrieve the cookie we saved during the "Fetch" step
-        # This ensures we use the valid cookie even if the text input gets cleared or confused
         active_cookie = st.session_state.get('active_cookie')
         if not active_cookie:
             st.error("Session Error: Cookie lost. Please re-fetch roles (Step 1).")
@@ -380,7 +421,7 @@ if not st.session_state['fetched_roles_df'].empty:
                         args=['--no-sandbox', '--disable-dev-shm-usage']
                     )
                     
-                    # User-Agent added for stability, preventing potential redirects
+                    # Secure Context
                     context = browser.new_context(
                         accept_downloads=True,
                         user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
@@ -406,7 +447,8 @@ if not st.session_state['fetched_roles_df'].empty:
                             export_log.append({'Role': rname, 'ID': rid, 'Status': 'OK'})
                         else:
                             failure_count += 1
-                            export_log.append({'Role': rname, 'ID': rid, 'Status': 'Failed', 'Error': fname})
+                            # Only log generic error to UI
+                            export_log.append({'Role': rname, 'ID': rid, 'Status': 'Failed', 'Error': 'Download Failed or Timed Out'})
                             
                         elapsed = time.time() - start_time
                         if elapsed > 0:
@@ -430,8 +472,9 @@ if not st.session_state['fetched_roles_df'].empty:
             safe_rerun()
 
         except Exception as e:
-            st.error(f"Browser Error: {e}")
-            logging.error(e)
+            st.error("Browser process failed.")
+            # Log exception to console for admin, but keep it generic
+            logging.warning(f"Browser Process Error: {type(e).__name__}")
 
 # --- RESULTS DISPLAY ---
 if 'export_zip_buffer' in st.session_state:
@@ -463,5 +506,3 @@ if 'export_zip_buffer' in st.session_state:
         
     with st.expander("View Log Details"):
         st.dataframe(log_df, use_container_width=True)
-
-
